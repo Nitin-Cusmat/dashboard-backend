@@ -1,0 +1,17 @@
+name: Deploy to Beta
+
+on:
+  push:
+    branches:
+      - "staging"
+
+jobs:
+  deployment:
+    name: Build and deploy to Beta
+    uses: ./.github/workflows/build_and_deploy.yml
+    with:
+      environment: staging
+    secrets:
+      USER: ${{ secrets.USER }}
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      HOST: ${{ secrets.HOST }}

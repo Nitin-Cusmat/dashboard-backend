@@ -1,0 +1,8 @@
+venv/
+*.pyc
+localsettings.py
+celerybeat-schedule
+media/
+*.png
+*.dot
+.vscode

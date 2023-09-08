@@ -1,0 +1,17 @@
+name: Deploy to Prod
+
+on:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  deployment:
+    name: Build and deploy to Prod
+    uses: ./.github/workflows/build_and_deploy.yml
+    with:
+      environment: prod
+    secrets:
+      USER: ${{ secrets.USER }}
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      HOST: ${{ secrets.HOST }}

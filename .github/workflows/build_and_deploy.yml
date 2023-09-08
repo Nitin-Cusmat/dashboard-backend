@@ -1,0 +1,82 @@
+name: Build and Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        description: environment to deploy to
+        required: true
+    secrets:
+      USER:
+        required: true
+      HOST:
+        required: true
+      PRIVATE_KEY:
+        required: true
+
+jobs:
+  reusable_build_and_deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh/
+          echo "$SSH_KEY" > ~/.ssh/server.key
+          chmod 600 ~/.ssh/server.key
+          cat >>~/.ssh/config <<END
+          Host server
+            HostName $SSH_HOST
+            User $SSH_USER
+            IdentityFile ~/.ssh/server.key
+            StrictHostKeyChecking no
+          END
+        env:
+          SSH_USER: ${{ secrets.USER }}
+          SSH_KEY: ${{ secrets.PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.HOST }}
+
+      - name: Zip the required folders and files
+        run: tar czvf run.tar.gz apiserver
+
+      - name: Copy the zip to the server
+        run: scp -r run.tar.gz server:/home/ubuntu/cusmat-backend/temp/.
+
+      - name: Unzip the file on the server
+        run: ssh server 'cd /home/ubuntu/cusmat-backend/temp/ && tar xvzf run.tar.gz'
+
+      - name: Remove files and folders from backup
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && rm -rf backup/*'
+
+      - name: Move the old files and folders to backup on the server
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && mv -t backup/. apiserver'
+
+      - name: Remove the zip file on the server
+        run: ssh server 'cd /home/ubuntu/cusmat-backend/temp/ && rm -rf run.tar.gz'
+
+      - name: Move the new files and folders to main folder on the server
+        id: move
+        continue-on-error: true
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && mv temp/* .'
+
+      - name: Move failed, copy from the backup
+        if: steps.move.outcome == 'failure'
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && mv backup/* .'
+
+      - name: Remove the temp folder
+        if: always()
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && rm -rf temp/* '
+
+      - name: Installing requirements
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && /home/ubuntu/cusmat-backend/venv/bin/python3 -m pip install -r apiserver/requirements/${{ inputs.environment }}.txt'
+
+      - name: Copy localsettings
+        run: ssh server 'cd /home/ubuntu/cusmat-backend && cp localsettings.py apiserver/apiserver/.'
+
+      - name: Restart the service
+        if: always()
+        run: ssh server 'sudo systemctl restart cusmat-backend'

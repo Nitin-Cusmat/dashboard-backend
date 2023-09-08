@@ -1,0 +1,5 @@
+# add this to git ignore if developers on this project need to use different
+# packages because of their system restrictions.
+-r common.txt
+# psycopg2-binary==2.9.5 # Windows and Linux users. Few Mac users.
+psycopg2==2.9.5 # Mac users who .

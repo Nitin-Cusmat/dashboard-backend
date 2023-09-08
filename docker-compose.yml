@@ -1,0 +1,54 @@
+version: "3.7"
+
+services:
+  redis:
+    image: redis:6.0-alpine
+    hostname: redis
+    ports:
+      - "6379:6379"
+
+  db:
+    image: postgres:14-alpine
+    environment:
+      - POSTGRES_DB=${DB_NAME:-apiserver}
+      - POSTGRES_USER=${DB_USER:-dbuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-dbpass}
+    volumes:
+      - ${DB_LOCAL_DATA:-./dbdata}:/docker-entrypoint-initdb.d/
+    ports:
+      - ${DB_LOCAL_PORT:-5433}:5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A apiserver worker --beat -l debug
+    volumes:
+      - ./apiserver:/code
+    ports:
+      - ${WORKER_PORT:-9200}:${WORKER_PORT:-9200}
+    restart: "on-failure"
+    depends_on:
+      - db
+      - redis
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ./apiserver/app_init.sh
+    volumes:
+      - ./apiserver:/code
+    expose:
+      - ${SERVER_PORT:-8000}
+    ports:
+      - ${SERVER_PORT:-8000}:${SERVER_PORT:-8000}
+    restart: on-failure
+    depends_on:
+      - db
+      - redis
