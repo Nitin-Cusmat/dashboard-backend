@@ -17,6 +17,7 @@ from django.db.models import Sum, Count
 from datetime import datetime, timedelta
 from collections import Counter
 import json
+from django.db.models import Q
 
 
 class ListLevelSerializer(serializers.ModelSerializer):
@@ -700,8 +701,8 @@ class AttemptSerializer(serializers.ModelSerializer):
                             actual_paths[k].append(d)
                         else:
                             actual_paths[k] = [d]
-                    if "path-1" in actual_paths:
-                        del actual_paths["path-1"]
+                    # if "path-1" in actual_paths:
+                    #     del actual_paths["path-1"]
                     paths = {"ideal_path": ideal_paths, "actual_path": actual_paths}
                     if "idealTime" in game_data["path"]:
                         paths["ideal_time"] = game_data["path"]["idealTime"]
@@ -721,23 +722,31 @@ class AttemptSerializer(serializers.ModelSerializer):
                         or graph["type"] == "kpis"
                     ):
                         if graph.get("data", None) is not None:
-                            series, additional_fields = self.get_series_data(
-                                graph["data"],
-                                game_data,
-                                additional_data=graph.get("additionalData", None),
-                            )
-                            graph_obj["data"] = Counter(series).values()
-                            graph_obj["additional_data"] = additional_fields
-                            graph_obj["labels"] = Counter(series).keys()
-
-                            if graph.get("label", None) is not None:
-                                graph_obj["data"] = series
+                            graph["data"] = graph["data"].replace("'", '"')
+                            try:
+                                series = json.loads(graph["data"])
+                                graph_obj["data"] = series.values()
+                                graph_obj["labels"] = series.keys()
+                            except json.JSONDecodeError:
                                 series, additional_fields = self.get_series_data(
-                                    graph["label"],
+                                    graph["data"],
                                     game_data,
                                     additional_data=graph.get("additionalData", None),
                                 )
-                                graph_obj["labels"] = series
+                                graph_obj["data"] = Counter(series).values()
+                                graph_obj["additional_data"] = additional_fields
+                                graph_obj["labels"] = Counter(series).keys()
+
+                                if graph.get("label", None) is not None:
+                                    graph_obj["data"] = series
+                                    series, additional_fields = self.get_series_data(
+                                        graph["label"],
+                                        game_data,
+                                        additional_data=graph.get(
+                                            "additionalData", None
+                                        ),
+                                    )
+                                    graph_obj["labels"] = series
                         all_graphs.append(graph_obj)
 
                     elif graph["type"] == "bar" or graph["type"] == "stacked_bar":
@@ -797,23 +806,33 @@ class AttemptSerializer(serializers.ModelSerializer):
 
 
 class LatestAttemptSerializer(BaseAttemptSerializer):
-    level = serializers.SerializerMethodField()
-    user = serializers.SerializerMethodField()
+    level = serializers.CharField(source="level_activity__level__name")
+    user_id = serializers.CharField(
+        source="level_activity__module_activity__user__user_id"
+    )
+    first_name = serializers.CharField(
+        source="level_activity__module_activity__user__first_name"
+    )
+    last_name = serializers.CharField(
+        source="level_activity__module_activity__user__last_name"
+    )
+    module = serializers.CharField(
+        source="level_activity__module_activity__module__module__name"
+    )
+    level = serializers.CharField(source="level_activity__level__name")
 
     class Meta:
         model = Attempt
-        fields = BaseAttemptSerializer.Meta.fields + ["level", "user"]
-
-    def get_level(self, instance):
-        return instance.level_activity.level.name
-
-    def get_user(self, instance):
-        user = instance.level_activity.module_activity.user
-        return {
-            "user_id": user.user_id,
-            "name": user.get_full_name(),
-            "module": instance.level_activity.module_activity.module.module.name,
-        }
+        fields = [
+            "user_id",
+            "first_name",
+            "last_name",
+            "module",
+            "level",
+            "duration",
+            "start_time",
+            "end_time",
+        ]
 
 
 class AttemptReportSerializer(BaseAttemptSerializer):
@@ -877,3 +896,71 @@ class ApplicationUsageSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserActivity
         fields = ["organization_id"]
+
+
+class AssignedUsersSerializer(serializers.ModelSerializer):
+    modules = serializers.CharField(source="module__module__name")
+    user_id = serializers.CharField(source="user__user_id")
+    current_level = serializers.CharField()
+    level_date = serializers.SerializerMethodField()
+    module_usage = serializers.SerializerMethodField()
+    total_attempts = serializers.CharField()
+    name = serializers.SerializerMethodField()
+    progress = serializers.SerializerMethodField()
+
+    def get_name(self, obj):
+        return f"{obj['user__first_name']} {obj['user__last_name']}"
+
+    def get_module_usage(self, obj):
+        if obj["module_usage"]:
+            obj["module_usage"] = obj["module_usage"].total_seconds()
+        else:
+            obj["module_usage"] = timedelta()
+        return obj["module_usage"]
+
+    def get_level_date(self, obj):
+        if obj["level_date"]:
+            obj["level_date"] = obj["level_date"].date()
+        else:
+            obj["level_date"] = None
+        return obj["level_date"]
+
+    def get_progress(self, obj):
+        if (
+            obj["total_assessment_count"] is not None
+            and obj["completed_assessment_count"] is not None
+        ):
+            progress = round(
+                obj["completed_assessment_count"] / obj["total_assessment_count"] * 100,
+                2,
+            )
+        elif (
+            obj["total_non_assessment_count"] is not None
+            and obj["completed_non_assessment_count"] is not None
+        ):
+            progress = round(
+                obj["completed_non_assessment_count"]
+                / obj["total_non_assessment_count"]
+                * 100,
+                2,
+            )
+        else:
+            progress = 0
+
+        if not isinstance(progress, int):
+            progress = int(progress)
+
+        return f"{progress}%"
+
+    class Meta:
+        model = ModuleActivity
+        fields = [
+            "modules",
+            "name",
+            "user_id",
+            "current_level",
+            "level_date",
+            "module_usage",
+            "total_attempts",
+            "progress",
+        ]
