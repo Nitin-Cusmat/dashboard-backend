@@ -49,7 +49,7 @@ from .serializers import (
     AttemptSerializer,
     LevelSerializer,
     AttemptRetriveSerilaizer,
-    UserPerformanceSerializer,
+    AssignedUsersSerializer,
     BasicModuleActivitySerializer,
     LevelActivityReportSerializer,
     LatestAttemptSerializer,
@@ -62,7 +62,19 @@ from .serializers import (
 )
 from accounts.views import IsOrgOwnerOrStaff, IsAdmin
 from .utils import *
-from django.db.models import Case, When, Value, Sum, Prefetch, Count, Q, BooleanField
+from django.db.models import (
+    Case,
+    When,
+    Value,
+    Sum,
+    Prefetch,
+    Count,
+    Q,
+    BooleanField,
+    Subquery,
+    OuterRef,
+    IntegerField,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -576,26 +588,47 @@ class IndividualUserReportApiView(APIView):
 class LevelActivityApiView(APIView):
     permission_classes = [IsOrgOwnerOrStaff]
 
-    def get_users_info(self, levels):
-        users_info = []
-        duration_array = []
-        for level in levels:
-            attempts = Attempt.objects.filter(level_activity=level).exclude(
-                duration=None
-            )
-            detail = {}
-            detail["name"] = level.module_activity.user.get_full_name()
-            detail["time_spent"] = attempts.aggregate(
-                total_duration=Sum("duration")
-            ).get("total_duration")
+    from django.db.models import Sum, Count, Q, Subquery
 
-            users_info.append(detail)
-            duration_array.append(detail["time_spent"])
-        total_time = sum(
-            [dur for dur in duration_array if dur is not None], timedelta(0, 0)
+
+from django.http import JsonResponse
+from rest_framework.views import APIView
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from .models import Module, LevelActivity, Attempt, ModuleActivity, Level
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class LevelActivityApiView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_users_info(self, levels):
+        user_attempt_data = (
+            Attempt.objects.filter(level_activity__in=levels, duration__isnull=False)
+            .values("level_activity__module_activity__user_id")
+            .annotate(total_duration=Sum("duration"))
         )
 
-        return users_info, total_time
+        user_info_map = {}
+        for data in user_attempt_data:
+            user_id = data["level_activity__module_activity__user_id"]
+            user_info_map[user_id] = {
+                "time_spent": data["total_duration"],
+            }
+
+        users_info = []
+        for level in levels:
+            user_id = level.module_activity.user_id
+            user_info = user_info_map.get(user_id, {})
+            detail = {
+                "name": f"{level.module_activity.user.get_full_name()}",
+                "time_spent": user_info.get("time_spent", 0),
+            }
+            users_info.append(detail)
+
+        return users_info
 
     def get(self, request):
         org_id = self.request.query_params.get("org_id")
@@ -605,139 +638,235 @@ class LevelActivityApiView(APIView):
         module_name = self.request.query_params.get("module_name")
         try:
             module = Module.objects.get(name=module_name)
-        except ObjectDoesNotExist:
+        except Module.DoesNotExist:
             logger.error(f"Module with name {module_name} not found")
-            return Response("Module not found", status=404)
+            return JsonResponse(
+                {"message": "Module not found"}, status=status.HTTP_404_NOT_FOUND
+            )
 
         level_activities = LevelActivity.objects.filter(
             module_activity__module__module__name=module.name,
             module_activity__user__organization_id=org_id,
             module_activity__active=True,
-        )
+        ).prefetch_related("module_activity__user")
 
-        sorted_data = []
-        if level_activities.count() == 0:
-            sorted_data.append({})
-        else:
-            response = []
-            num_module_users = len(
-                ModuleActivity.objects.filter(
-                    user__organization_id=org_id,
-                    module__module__name=module.name,
-                    user__deleted=False,
-                    active=True,
+        response = []
+        if level_activities.exists():
+            levels = (
+                Level.objects.filter(module=module)
+                .annotate(
+                    users_completed=Count(
+                        "levelactivity__module_activity",
+                        filter=(
+                            Q(
+                                levelactivity__module_activity__user__deleted=False,
+                                levelactivity__module_activity__user__active=True,
+                                levelactivity__module_activity__active=True,
+                            )
+                        ),
+                    )
                 )
+                .order_by("level")
             )
-            levels = Level.objects.filter(module=module).order_by("level")
+
+            num_module_users = ModuleActivity.objects.filter(
+                module__module=module,
+                user__organization_id=org_id,
+                active=True,
+                user__active=True,
+                user__deleted=False,
+            ).count()
+
             for level in levels:
                 completed_level_activity = level_activities.filter(
                     level_id=level.id,
                     complete=True,
-                    module_activity__user__deleted=False,
                 )
-                progress = completed_level_activity.count() / num_module_users * 100
+                users_info = self.get_users_info(completed_level_activity)
+                progress = (level.users_completed / num_module_users) * 100
                 if progress.is_integer():
                     progress = int(progress)
-                users_info, total_time = self.get_users_info(completed_level_activity)
+                total_time = completed_level_activity.aggregate(
+                    total_duration=Sum("attempt__duration")
+                ).get("total_duration")
+
                 level_obj = {
                     "level_name": level.name,
                     "category": level.category.name,
-                    "total_time": total_time,
-                    "users_completed": completed_level_activity.count(),
+                    "total_time": total_time or 0,
+                    "users_completed": level.users_completed,
                     "total_count": num_module_users,
-                    "user_info": users_info,
                     "progress_%": "{}%".format(round(progress, 2)),
+                    "user_info": users_info,
                 }
                 response.append(level_obj)
 
-            sorted_data = sorted(
-                response, key=lambda x: float(x["progress_%"][:-1]), reverse=True
-            )
-        return Response(sorted_data, status=200)
+        sorted_data = sorted(
+            response, key=lambda x: float(x["progress_%"][:-1]), reverse=True
+        )
+
+        return Response(sorted_data, status=status.HTTP_200_OK)
 
 
 # api to get all users average performance for all the modules assigned
 class AssignedUsersApiView(generics.GenericAPIView):
     permission_classes = [IsOrgOwnerOrStaff]
-    serializer_class = UserPerformanceSerializer
-    queryset = User.objects.all()
+    serializer_class = AssignedUsersSerializer
 
     def get_queryset(self):
         LEARNER = "Learner"
-        user = User.objects.get(id=self.request.user.id)
-        queryset = (
-            User.objects.annotate(module_activity_count=Count("moduleactivity"))
-            .filter(
-                module_activity_count__gt=0,
-                # deleted=False,
-                # active=True,
-                access_type=LEARNER,
-            )
-            .order_by("-created_at")
-        )
         org_id = self.request.query_params.get("org_id", None)
-        if user.organization or org_id:
-            filter_by = org_id if org_id is not None else user.organization.id
-            queryset = queryset.filter(organization__id=filter_by)
+        if org_id is None:
+            return User.objects.none()
+
+        module = self.request.query_params.get("modules", None)
+        if module is None:
+            return Module.objects.none()
+        module_names = module.split(",")
+
+        module_activities = ModuleActivity.objects.filter(
+            user__organization__id=org_id,
+            module__module__name__in=module_names,
+            active=True,
+            user__deleted=False,
+            user__active=True,
+        )
+
+        total_non_assessment_count_subquery = (
+            Level.objects.filter(
+                ~Q(category__name__iexact="assessment"),
+                module=OuterRef("module__module"),
+            )
+            .values("module")
+            .annotate(total_non_assessment_count=Coalesce(Count("id"), 0))
+            .values("total_non_assessment_count")
+        )
+
+        completed_non_assessment_count_subquery = (
+            LevelActivity.objects.filter(
+                ~Q(level__category__name__iexact="assessment"),
+                module_activity=OuterRef("id"),  # Link to ModuleActivity
+                complete=True,
+            )
+            .values("module_activity")
+            .annotate(completed_non_assessment_count=Coalesce(Count("id"), 0))
+            .values("completed_non_assessment_count")
+        )
+
+        total_assessment_count_subquery = (
+            Level.objects.filter(
+                category__name__iexact="assessment",
+                module=OuterRef("module__module"),
+            )
+            .values("module")
+            .annotate(total_non_assessment_count=Coalesce(Count("id"), 0))
+            .values("total_non_assessment_count")
+        )
+
+        completed_assessment_count_subquery = (
+            LevelActivity.objects.filter(
+                level__category__name__iexact="assessment",
+                module_activity=OuterRef("id"),  # Link to ModuleActivity
+                complete=True,
+            )
+            .values("module_activity")
+            .annotate(completed_non_assessment_count=Coalesce(Count("id"), 0))
+            .values("completed_non_assessment_count")
+        )
+
+        last_attempted_level_subquery = (
+            LevelActivity.objects.filter(module_activity=OuterRef("pk"))
+            .order_by("-attempt__end_time")
+            .values("level__name")[:1]
+        )
+        last_attempt_date_subquery = (
+            Attempt.objects.filter(level_activity__module_activity=OuterRef("pk"))
+            .order_by("-end_time")
+            .values("end_time")[:1]
+        )
+
+        queryset = (
+            module_activities.annotate(
+                current_level=Subquery(last_attempted_level_subquery),
+                level_date=Subquery(last_attempt_date_subquery),
+                module_usage=Sum("levelactivity__attempt__duration"),
+                total_attempts=Count("levelactivity__attempt"),
+                total_non_assessment_count=Subquery(
+                    total_non_assessment_count_subquery
+                ),
+                completed_non_assessment_count=Subquery(
+                    completed_non_assessment_count_subquery
+                ),
+                total_assessment_count=Subquery(total_assessment_count_subquery),
+                completed_assessment_count=Subquery(
+                    completed_assessment_count_subquery
+                ),
+            )
+            .values(
+                "id",
+                "module__module__name",
+                "user__first_name",
+                "user__last_name",
+                "user__user_id",
+                "current_level",
+                "level_date",
+                "module_usage",
+                "total_attempts",
+                "total_non_assessment_count",
+                "completed_non_assessment_count",
+                "total_assessment_count",
+                "completed_assessment_count",
+            )
+            .order_by(F("level_date").desc(nulls_last=True))
+        )
 
         search_query = self.request.query_params.get("search", None)
-        another_query = None
-        if len(search_query) > 0:
-            queryset1 = queryset.filter(
-                Q(first_name__icontains=search_query)
-                | Q(last_name__icontains=search_query)
-                | Q(user_id__icontains=search_query)
-                | Q(moduleactivity__module__module__name__icontains=search_query)
-                | Q(moduleactivity__levelactivity__level__name__icontains=search_query)
+        if search_query is not None and len(search_query) > 0:
+            queryset = queryset.filter(
+                Q(user__first_name__icontains=search_query)
+                | Q(user__last_name__icontains=search_query)
+                | Q(user__user_id__icontains=search_query)
             )
-            if not queryset1:
-                module = self.request.query_params.get("modules", None)
-                another_query = queryset.filter(
-                    moduleactivity__levelactivity__level__isnull=True,
-                    moduleactivity__module__module__name=module,
-                )
-            if another_query and "not started".find(search_query.lower()) != -1:
-                queryset1 = another_query
-            return queryset1
         return queryset
 
-    def get(self, request):
-        qs = self.get_queryset()
-        paginator = LimitOffsetPagination()
-        qs = paginator.paginate_queryset(qs, request)
-        user_ser = self.get_serializer(qs, many=True)
-
-        MIN_DATE = date(1, 1, 1)
-
-        def get_level_date(user_data):
-            modules = user_data["modules"]
-            if modules:
-                current_level = modules[0].get("current_level", {})
-                level_date = current_level.get("level_date", MIN_DATE)
-                if isinstance(level_date, date):
-                    return level_date
-            return MIN_DATE
-
-        sorted_user_data = sorted(user_ser.data, key=get_level_date, reverse=True)
-
-        return paginator.get_paginated_response(sorted_user_data)
+    def get(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        paginator = self.paginator
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = self.get_serializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class LatestAttemptsApiView(ListAPIView):
     permission_classes = [IsOrgOwnerOrStaff]
-    queryset = Attempt.objects.all().order_by("-id")
     serializer_class = LatestAttemptSerializer
 
     def get_queryset(self):
-        user = User.objects.get(id=self.request.user.id)
-        org_id = self.request.query_params.get("org_id", None)
-        queryset = Attempt.objects.all()
-        if user.organization or org_id:
-            filter_by = org_id if org_id is not None else user.organization.id
-            queryset = queryset.filter(
-                level_activity__module_activity__user__organization__id=filter_by
-            ).order_by("-id")[:15]
-        return queryset
+        organization_id = self.request.query_params.get("organization_id", None)
+
+        attempts = (
+            Attempt.objects.filter(
+                level_activity__module_activity__user__organization__id=organization_id
+            )
+            .select_related(
+                "level_activity__level",
+                "level_activity__module_activity__user",
+                "level_activity__module_activity__module__module",
+            )
+            .values(
+                "level_activity__level__name",
+                "level_activity__module_activity__user__user_id",
+                "level_activity__module_activity__user__first_name",
+                "level_activity__module_activity__user__last_name",
+                "level_activity__module_activity__module__module__name",
+                "duration",
+                "start_time",
+                "end_time",
+            )
+            .order_by("-id")[:15]
+        )
+
+        return attempts
 
 
 class ApplicationUsageApiView(APIView):
