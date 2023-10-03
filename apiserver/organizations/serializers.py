@@ -99,6 +99,15 @@ class ModuleActivityForPerformanceSerializer(serializers.ModelSerializer):
         fields = ["organization_id", "module_info"]
 
 
+class PerformanceSerializer(serializers.ModelSerializer):
+    organization_id = serializers.CharField()
+    module_name = serializers.CharField(required=False)
+
+    class Meta:
+        model = ModuleActivity
+        fields = ["organization_id", "module_name"]
+
+
 class BasicLevelActivitySerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
 
@@ -434,33 +443,40 @@ class AttemptSerializer(serializers.ModelSerializer):
         if additional_data is not None:
             additional_fields = self.get_additional_fields(additional_data)
 
+        last_added_time = None
         if info_x and info_y:
             for i in range(0, len(info_x)):
-                co_ordinates.append(
-                    {
-                        "x": round(float(info_x[i][x_label]), 2),
-                        "y": round(float(info_y[i][y_label]), 2),
-                    }
-                )
-                for additional_field in additional_fields:
-                    list_to_append = additional_field["value_list"]
-                    value_to_append = info_x[i][additional_field["fetch_field"]]
-                    try:
-                        value_to_append = float(value_to_append)
-                        value_to_append = round(value_to_append, 2)
-                    except:
-                        "do nothing"
-                    list_to_append.append(value_to_append)
-                    additional_field["value_list"] = list_to_append
+                current_time = round(float(info_x[i][x_label]), 2)
+                if last_added_time is None or (
+                    current_time - last_added_time >= 2
+                ):  # Adjusted to 2 seconds here
+                    co_ordinates.append(
+                        {
+                            "x": current_time,
+                            "y": round(float(info_y[i][y_label]), 2),
+                        }
+                    )
+                    last_added_time = current_time
+
+                    for additional_field in additional_fields:
+                        list_to_append = additional_field["value_list"]
+                        value_to_append = info_x[i][additional_field["fetch_field"]]
+                        try:
+                            value_to_append = float(value_to_append)
+                            value_to_append = round(value_to_append, 2)
+                        except:
+                            pass  # do nothing
+                        list_to_append.append(value_to_append)
+                        additional_field["value_list"] = list_to_append
 
         graph_obj = {
             "name": graph.get("name", ""),
             "type": graph.get("type", ""),
-            "x-label": graph.get("x-label", None)
-            if graph.get("x-label", None) is not None
+            "xlabel": graph.get("xlabel", None)
+            if graph.get("xlabel", None) is not None
             else x_label,
-            "y-label": graph.get("y-label", None)
-            if graph.get("y-label", None) is not None
+            "ylabel": graph.get("ylabel", None)
+            if graph.get("ylabel", None) is not None
             else y_label,
             "data": co_ordinates,
             "additional_data": additional_fields,
@@ -562,6 +578,7 @@ class AttemptSerializer(serializers.ModelSerializer):
             mistakes_kpi_mapping = {
                 "drove over the speed limit": "MAINTAIN SPEED Move Slowly < 6 km/h",
                 "engagement error": "FORK ENGAGEMENT",
+                "did not report breakdown during pre ops check": "Operator will choose start unit or breakdown or report to spv before start unit",
                 "did not lower forks after stacking": "If operator perform reverse & lower the fork",
                 "did not horn while pedestrian in vicinity": "If operator push horn & Stop MHE and 3 meters away",
                 "did not horn before starting the engine": "if operator push horn 1x when start engine",
@@ -612,12 +629,14 @@ class AttemptSerializer(serializers.ModelSerializer):
                     fixed_table_kpis = {
                         "brake condition": 2,
                         "fork condition": 2,
+                        "alert light condition": 1,
+                        "camera condition": 1,
                         "tilt condition": 2,
                         "steer condition": 2,
                         "safety belt condition": 1,
                         "fire extiguisher condition": 1,
                         "rearviews mirror condition": 1,
-                        "blue light condition": 2,
+                        "blue light condition": 1,
                         "horn condition": 1,
                         "main light condition": 2,
                     }
@@ -697,8 +716,15 @@ class AttemptSerializer(serializers.ModelSerializer):
                     for d in game_data["path"]["vehicleData"]:
                         k = d["path"]
                         k = k.lower() if k else "unknown"
+                        rounded_time_2_seconds = (
+                            round(float(d["time"]) / 2) * 2
+                        )  ### new code for path taking 2 sec
                         if k in actual_paths:
-                            actual_paths[k].append(d)
+                            if rounded_time_2_seconds not in [
+                                round(float(item["time"]) / 2) * 2
+                                for item in actual_paths[k]
+                            ]:
+                                actual_paths[k].append(d)
                         else:
                             actual_paths[k] = [d]
                     # if "path-1" in actual_paths:
@@ -754,8 +780,8 @@ class AttemptSerializer(serializers.ModelSerializer):
                         x = graph.get("xAxis", None)
                         y = graph.get("yAxis", None)
                         if x is not None and y is not None:
-                            graph_obj["x-label"] = x
-                            graph_obj["y-label"] = y
+                            graph_obj["xlabel"] = x
+                            graph_obj["ylabel"] = y
                         prefix = graph.get("labels", "")
                         graph_obj = self.extract_dataset(graph_obj, graph, game_data)
                         graph_obj["prefix"] = prefix
@@ -785,7 +811,7 @@ class AttemptSerializer(serializers.ModelSerializer):
                             graph_obj["type"] = "multiple_line"
                             x_label = graph.get("label", None)
                             if x_label:
-                                graph_obj["x-label"] = x_label.split(".")[-1]
+                                graph_obj["xlabel"] = x_label.split(".")[-1]
 
                         all_graphs.append(graph_obj)
 

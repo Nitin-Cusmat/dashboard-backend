@@ -59,6 +59,7 @@ from .serializers import (
     AttemptWiseReportTableSerializer,
     ApplicationUsageSerializer,
     ListLevelSerializer,
+    PerformanceSerializer,
 )
 from accounts.views import IsOrgOwnerOrStaff, IsAdmin
 from .utils import *
@@ -73,8 +74,8 @@ from django.db.models import (
     BooleanField,
     Subquery,
     OuterRef,
-    IntegerField,
 )
+from django.shortcuts import get_object_or_404
 
 
 logger = logging.getLogger(__name__)
@@ -189,15 +190,28 @@ class ActiveUsersCountView(generics.GenericAPIView):
 
 
 class PerformanceView(APIView):
-    serializer_class = ModuleActivityForPerformanceSerializer
+    serializer_class = PerformanceSerializer
     permission_classes = [IsOrgOwnerOrStaff]
 
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
-        organization_id = serializer.validated_data["user"]["organization"]["id"]
-        organization = Organization.objects.get(id=organization_id)
-        data = PerformanceCalculations.calculate_completion_rate(organization)
+        organization_id = serializer.validated_data["organization_id"]
+        module_name = serializer.validated_data.get("module_name", None)
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            return Response(status=400, data={"error": "Invalid organization"})
+        module = None
+        if module_name is not None:
+            try:
+                module = Module.objects.get(name__iexact=module_name)
+            except Module.DoesNotExist:
+                return Response(
+                    status=400,
+                    data={"error": "Invalid module name for the given organization"},
+                )
+        data = PerformanceCalculations.get_module_performance(organization, module)
         return Response(status=200, data=data)
 
 
@@ -299,15 +313,18 @@ class UserAttemptView(APIView):
             fixed_table_kpis = {
                 "brake condition": 2,
                 "fork condition": 2,
+                "alert light condition": 1,
+                "camera condition": 1,
                 "tilt condition": 2,
                 "steer condition": 2,
                 "safety belt condition": 1,
                 "fire extiguisher condition": 1,
                 "rearviews mirror condition": 1,
-                "blue light condition": 2,
+                "blue light condition": 1,
                 "horn condition": 1,
                 "main light condition": 2,
             }
+
             if not data["gameData"]["tableKpis"]:
                 score = score + sum(fixed_table_kpis.values())
             else:
@@ -328,7 +345,7 @@ class UserAttemptView(APIView):
             fixed_mistakes = {
                 "did not complete pre operation check": 2,
                 "drove over the speed limit": 3,
-                "engagement error": 3,
+                "engagement error": 2,
                 "did not lower forks after stacking": 2,
                 "did not horn while pedestrian in vicinity": 2,
                 "did not horn before starting the engine": 1,
@@ -339,8 +356,8 @@ class UserAttemptView(APIView):
                 "did not maintain forkheight above 15 cm": 1,
                 "stacking error": 3,
                 "did not fix the pallet postion": 2,
+                "did not report breakdown during pre ops check": 2,
             }
-
             if "mistakes" in data["gameData"]:
                 score = score + sum(fixed_mistakes.values())
                 for mistake in data["gameData"]["mistakes"]:
@@ -369,11 +386,12 @@ class UserAttemptView(APIView):
                 ideal_10 = ideal_total_time * 10 / 100
                 if diff > 0 and diff > ideal_10:
                     score = score + 5
-                score = score / 50 * 100
-                data["score"] = round(score, 2)
-                if module_name.lower() == "forklift":
-                    level_activity.complete = True
-                    level_activity.save()
+
+            score = score / 50 * 100
+            data["score"] = round(score, 2)
+            if module_name.lower() == "forklift":
+                level_activity.complete = True
+                level_activity.save()
         if score is not None and module_name.lower() != "forklift":
             if module.passing_score and float(score) <= float(module.passing_score):
                 level_activity.complete = False
@@ -585,50 +603,44 @@ class IndividualUserReportApiView(APIView):
         return Response(response, status=200)
 
 
-class LevelActivityApiView(APIView):
+class LevelUserInfo(APIView):
     permission_classes = [IsOrgOwnerOrStaff]
 
-    from django.db.models import Sum, Count, Q, Subquery
+    def get(self, request):
+        level_name = self.request.query_params.get("level_name")
+        module_name = self.request.query_params.get("module_name")
+        organization_id = self.request.query_params.get("organization_id")
 
+        module = get_object_or_404(Module, name=module_name)
+        organization = get_object_or_404(Organization, id=organization_id)
+        level = get_object_or_404(Level, name=level_name, module__name=module_name)
 
-from django.http import JsonResponse
-from rest_framework.views import APIView
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from .models import Module, LevelActivity, Attempt, ModuleActivity, Level
-import logging
+        attempts = (
+            Attempt.objects.filter(
+                level_activity__level=level,
+                level_activity__complete=True,
+                level_activity__module_activity__user__active=True,
+                level_activity__module_activity__user__deleted=False,
+                level_activity__module_activity__active=True,
+                level_activity__module_activity__user__organization=organization,
+                level_activity__module_activity__module__module=module,
+            )
+            .exclude(duration=None)
+            .select_related("level_activity__module_activity__user")
+        )
+        user_time_spent = {}
+        for attempt in attempts:
+            user = attempt.level_activity.module_activity.user.get_full_name()
+            time_spent = attempt.duration.total_seconds()
+            if user not in user_time_spent:
+                user_time_spent[user] = 0
+            user_time_spent[user] += time_spent
 
-logger = logging.getLogger(__name__)
+        return Response(status=200, data=user_time_spent)
 
 
 class LevelActivityApiView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get_users_info(self, levels):
-        user_attempt_data = (
-            Attempt.objects.filter(level_activity__in=levels, duration__isnull=False)
-            .values("level_activity__module_activity__user_id")
-            .annotate(total_duration=Sum("duration"))
-        )
-
-        user_info_map = {}
-        for data in user_attempt_data:
-            user_id = data["level_activity__module_activity__user_id"]
-            user_info_map[user_id] = {
-                "time_spent": data["total_duration"],
-            }
-
-        users_info = []
-        for level in levels:
-            user_id = level.module_activity.user_id
-            user_info = user_info_map.get(user_id, {})
-            detail = {
-                "name": f"{level.module_activity.user.get_full_name()}",
-                "time_spent": user_info.get("time_spent", 0),
-            }
-            users_info.append(detail)
-
-        return users_info
+    permission_classes = [IsOrgOwnerOrStaff]
 
     def get(self, request):
         org_id = self.request.query_params.get("org_id")
@@ -638,74 +650,60 @@ class LevelActivityApiView(APIView):
         module_name = self.request.query_params.get("module_name")
         try:
             module = Module.objects.get(name=module_name)
-        except Module.DoesNotExist:
+        except ObjectDoesNotExist:
             logger.error(f"Module with name {module_name} not found")
-            return JsonResponse(
-                {"message": "Module not found"}, status=status.HTTP_404_NOT_FOUND
+            return Response("Module not found", status=404)
+
+        level_activities = (
+            LevelActivity.objects.filter(
+                module_activity__module__module=module,
+                module_activity__user__organization_id=org_id,
+                module_activity__active=True,
+                module_activity__user__active=True,
+                module_activity__user__deleted=False,
+                complete=True,
             )
-
-        level_activities = LevelActivity.objects.filter(
-            module_activity__module__module__name=module.name,
-            module_activity__user__organization_id=org_id,
-            module_activity__active=True,
-        ).prefetch_related("module_activity__user")
-
-        response = []
-        if level_activities.exists():
-            levels = (
-                Level.objects.filter(module=module)
-                .annotate(
-                    users_completed=Count(
-                        "levelactivity__module_activity",
-                        filter=(
-                            Q(
-                                levelactivity__module_activity__user__deleted=False,
-                                levelactivity__module_activity__user__active=True,
-                                levelactivity__module_activity__active=True,
-                            )
-                        ),
-                    )
-                )
-                .order_by("level")
+            .values("level__name", "level__category__name")
+            .annotate(
+                users_completed=Count("module_activity__user", distinct=True),
+                total_time=Sum("attempt__duration"),
             )
+        )
 
+        sorted_data = []
+        if level_activities.count() == 0:
+            sorted_data.append({})
+        else:
+            response = []
             num_module_users = ModuleActivity.objects.filter(
                 module__module=module,
                 user__organization_id=org_id,
-                active=True,
-                user__active=True,
                 user__deleted=False,
-            ).count()
-
-            for level in levels:
-                completed_level_activity = level_activities.filter(
-                    level_id=level.id,
-                    complete=True,
+                user__active=True,
+                active=True,
+            )
+            for level_data in level_activities:
+                progress = (
+                    level_data["users_completed"] / len(num_module_users) * 100
+                    if len(num_module_users)
+                    else 0
                 )
-                users_info = self.get_users_info(completed_level_activity)
-                progress = (level.users_completed / num_module_users) * 100
                 if progress.is_integer():
                     progress = int(progress)
-                total_time = completed_level_activity.aggregate(
-                    total_duration=Sum("attempt__duration")
-                ).get("total_duration")
-
                 level_obj = {
-                    "level_name": level.name,
-                    "category": level.category.name,
-                    "total_time": total_time or 0,
-                    "users_completed": level.users_completed,
-                    "total_count": num_module_users,
+                    "level_name": level_data["level__name"],
+                    "category": level_data["level__category__name"],
+                    "total_time": level_data["total_time"] or 0,
+                    "users_completed": level_data["users_completed"],
+                    "total_count": len(num_module_users),
                     "progress_%": "{}%".format(round(progress, 2)),
-                    "user_info": users_info,
                 }
                 response.append(level_obj)
 
-        sorted_data = sorted(
-            response, key=lambda x: float(x["progress_%"][:-1]), reverse=True
-        )
-
-        return Response(sorted_data, status=status.HTTP_200_OK)
+            sorted_data = sorted(
+                response, key=lambda x: float(x["progress_%"][:-1]), reverse=True
+            )
+        return Response(sorted_data, status=200)
 
 
 # api to get all users average performance for all the modules assigned
