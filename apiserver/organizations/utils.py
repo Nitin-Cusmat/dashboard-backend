@@ -132,10 +132,10 @@ class PerformanceCalculations:
             )
         else:
             data["completion_rate"] = current_month_completion_rate["completed_users"]
-            data["completion_rate_comparison"] = current_month_completion_rate[
-                "completed_users"
-            ]
-            - previous_month_completion_rate["completed_users"]
+            data["completion_rate_comparison"] = (
+                current_month_completion_rate["completed_users"]
+                - previous_month_completion_rate["completed_users"]
+            )
             data["completion_rate_chart"] = module_completion_rate_chart
             completion_rates = (
                 ModuleActivity.objects.filter(
@@ -154,18 +154,21 @@ class PerformanceCalculations:
             )
             result = defaultdict(dict)
             for item in completion_rates:
-                month_number = item['month'].month
+                month_number = item["month"].month
                 month_name = calendar.month_name[month_number]
-                module_name = item['module__module__name']
-                completed_count = item['completed_count']
-                assigned_count = item['assigned_count']
-        
-                completion_rate = round(completed_count / assigned_count * 100, 2) if assigned_count > 0 else 0
+                module_name = item["module__module__name"]
+                completed_count = item["completed_count"]
+                assigned_count = item["assigned_count"]
+
+                completion_rate = (
+                    round(completed_count / assigned_count * 100, 2)
+                    if assigned_count > 0
+                    else 0
+                )
                 if int(completion_rate) == completion_rate:
                     completion_rate = int(completion_rate)
                 result[module_name][month_name] = completion_rate
             data["monthly_counts"] = result
-
 
         return data
 
@@ -208,8 +211,8 @@ class PerformanceCalculations:
                 last_month_assigned=Sum(
                     Case(
                         When(
-                            model_attributes__assigned_on__month=last_month,
-                            model_attributes__assigned_on__year=last_month_year,
+                            model_attributes__assigned_on__month__lte=last_month,
+                            model_attributes__assigned_on__year__lte=last_month_year,
                             model_attributes__user__deleted=False,
                             model_attributes__user__active=True,
                             model_attributes__active=True,
@@ -222,8 +225,8 @@ class PerformanceCalculations:
                 last_month_complete=Sum(
                     Case(
                         When(
-                            model_attributes__complete_date__month=last_month,
-                            model_attributes__complete_date__year=last_month_year,
+                            model_attributes__complete_date__month__lte=last_month,
+                            model_attributes__complete_date__year__lte=last_month_year,
                             model_attributes__complete=True,
                             model_attributes__user__deleted=False,
                             model_attributes__user__active=True,
@@ -252,9 +255,8 @@ class PerformanceCalculations:
                     monthly_trends[key] += value
 
         # Calculate pending users
-        pending_users = (
-            monthly_trends["current_month_assigned"]
-            + monthly_trends["last_month_assigned"]
+        pending_users = monthly_trends["current_month_assigned"] + (
+            monthly_trends["last_month_assigned"]
             - monthly_trends["last_month_complete"]
         )
 
