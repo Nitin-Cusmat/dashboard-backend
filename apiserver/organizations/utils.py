@@ -30,7 +30,6 @@ class PerformanceCalculations:
             user__organization__id=organization_id,
             user__user_id=user_id if user_id is not None else F("user__user_id"),
             active=True,
-            user__deleted=False,
         )
         return total_counts
 

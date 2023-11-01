@@ -976,7 +976,7 @@ class AssignedUsersSerializer(serializers.ModelSerializer):
         else:
             progress = 0
 
-        if not isinstance(progress, int):
+        if isinstance(progress, float) and progress.is_integer():
             progress = int(progress)
 
         return f"{progress}%"

@@ -923,16 +923,7 @@ class UserPerformanceView(APIView):
         )
 
         module_wise_total_time_spent_monthly = {}
-        overall_total_time_spent = (
-            total_counts.annotate(month=TruncMonth("assigned_on"))
-            .values("month")
-            .annotate(total_duration=Sum("levelactivity__attempt__duration"))
-        )
-        try:
-            total_time_spent = overall_total_time_spent[0]["total_duration"].seconds
-        except:
-            total_time_spent = 0
-
+        total_time_spent = 0
         if len(total_counts) > 0:
             smallest_datetime = (
                 min(total_counts, key=lambda x: x.assigned_on.date())
@@ -947,21 +938,25 @@ class UserPerformanceView(APIView):
                 .annotate(total_duration=Sum("attempt__duration"))
                 .order_by("month")
             )
-            monthly_dict = {
-                calendar.month_name[i]: 0
-                for i in range(smallest_datetime, datetime.now().month + 1)
-            }
             if len(user_level_activities) > 0:
-                if user_level_activities[0]["total_duration"].seconds > 0:
+                monthly_dict = {
+                    calendar.month_name[i]: 0
+                    for i in range(smallest_datetime, datetime.now().month + 1)
+                }
+
+                for user_level_activity in user_level_activities:
                     month_name_str = calendar.month_name[
-                        user_level_activities[0]["month"].month
+                        user_level_activity["month"].month
                     ]
-                    monthly_dict[month_name_str] = user_level_activities[0][
+                    monthly_dict[month_name_str] = user_level_activity[
                         "total_duration"
-                    ].seconds
+                    ].total_seconds()
                     module_wise_total_time_spent_monthly[
                         module.module.module.name
                     ] = monthly_dict
+                    total_time_spent += user_level_activity[
+                        "total_duration"
+                    ].total_seconds()
 
         data = {
             "current_month_overall_performace_chart": current_month_overall_performace_chart,
