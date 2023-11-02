@@ -1255,11 +1255,20 @@ class AttemptWiseReportAPIView(APIView):
                                             "module_names": [module_name],
                                         }
                                     )
-
+        mistakes_count = sum([item["count"] for item in mistakes_content])
+        performance_trend = 0
+        success_rate = 0
+        if total_attempts > 0:
+            performance_trend = 100 - (
+                mistakes_count / (mistakes_count + total_attempts) * 100
+            )
+            success_rate = (
+                sum(1 for module in assigned_modules if module.complete)
+                / len(assigned_modules)
+                * 100
+            )
         data = {
-            "success_rate": sum(1 for module in assigned_modules if module.complete)
-            / len(assigned_modules)
-            * 100,
+            "success_rate": success_rate,
             "completed_levels": all_completed_levels,
             "assigned_modules": len(assigned_modules),
             "total_attempts": total_attempts,
@@ -1267,7 +1276,8 @@ class AttemptWiseReportAPIView(APIView):
                 total_time_spent
             ),
             "mistakes_content": mistakes_content,
-            "mistakes_count": sum([item["count"] for item in mistakes_content]),
+            "mistakes_count": mistakes_count,
+            "performance_trend": str(performance_trend) + "%",
         }
 
         return Response(status=200, data=data)
