@@ -1259,9 +1259,11 @@ class AttemptWiseReportAPIView(APIView):
         performance_trend = 0
         success_rate = 0
         if total_attempts > 0:
-            performance_trend = 100 - (
-                mistakes_count / (mistakes_count + total_attempts) * 100
+            performance_trend = round(
+                100 - (mistakes_count / (mistakes_count + total_attempts) * 100), 2
             )
+            if performance_trend.is_integer():
+                performance_trend = int(performance_trend)
             success_rate = (
                 sum(1 for module in assigned_modules if module.complete)
                 / len(assigned_modules)
