@@ -1255,11 +1255,11 @@ class AttemptWiseReportAPIView(APIView):
                                             "module_names": [module_name],
                                         }
                                     )
-
+        success_rate = 0
+        if total_attempts > 0:
+            success_rate = round(all_completed_levels / total_attempts * 100, 2)
         data = {
-            "success_rate": sum(1 for module in assigned_modules if module.complete)
-            / len(assigned_modules)
-            * 100,
+            "success_rate": success_rate,
             "completed_levels": all_completed_levels,
             "assigned_modules": len(assigned_modules),
             "total_attempts": total_attempts,
