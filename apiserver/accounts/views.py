@@ -14,6 +14,7 @@ from rest_framework import serializers
 from django.template.loader import render_to_string
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError
+import pytz
 from .serializers import (
     UserProfileSerializer,
     CreateOrUpdateeUserFromCSVSerializer,
@@ -796,9 +797,15 @@ class AdminLoginView(generics.GenericAPIView):
         )
         if not user:
             return Response(status=401, data={"message": "Invalid email or password"})
+
+        jwt = RefreshToken.for_user(user)
+        if user.organization and user.organization.end_date:
+            tz = pytz.timezone("Asia/Kolkata")
+            ist_date = user.organization.end_date.astimezone(tz)
+            jwt["license_expiry_date"] = ist_date.strftime("%Y-%m-%d %H:%M:%S")
         data = {
-            "refresh": str(RefreshToken.for_user(user)),
-            "access": str(RefreshToken.for_user(user).access_token),
+            "access": str(jwt.access_token),
+            "refresh": str(jwt),
         }
         return Response(status=200, data=data)
 
@@ -820,6 +827,15 @@ class UserLoginView(generics.GenericAPIView):
         )
         if not user:
             return Response(status=401, data={"message": "Invalid user_id or password"})
+
+        if user.organization and user.organization.end_date < timezone.now():
+            return Response(
+                status=200,
+                data={
+                    "error": "Your license is expired. Please contact cusmat administrator."
+                },
+            )
+
         user_info = UserSerializer(
             User.objects.get(organization_id=organization_id, user_id=user_id)
         )
