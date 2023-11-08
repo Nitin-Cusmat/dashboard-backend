@@ -732,7 +732,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         total_non_assessment_count_subquery = (
             Level.objects.filter(
-                ~Q(category__name__iexact="assessment"),
+                Q(category__name__iexact="training"),
                 module=OuterRef("module__module"),
             )
             .values("module")
@@ -742,7 +742,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         completed_non_assessment_count_subquery = (
             LevelActivity.objects.filter(
-                ~Q(level__category__name__iexact="assessment"),
+                Q(level__category__name__iexact="training"),
                 module_activity=OuterRef("id"),  # Link to ModuleActivity
                 complete=True,
             )
@@ -753,7 +753,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         total_assessment_count_subquery = (
             Level.objects.filter(
-                category__name__iexact="assessment",
+                ~Q(category__name__iexact="training"),
                 module=OuterRef("module__module"),
             )
             .values("module")
@@ -763,7 +763,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         completed_assessment_count_subquery = (
             LevelActivity.objects.filter(
-                level__category__name__iexact="assessment",
+                ~Q(level__category__name__iexact="training"),
                 module_activity=OuterRef("id"),  # Link to ModuleActivity
                 complete=True,
             )
