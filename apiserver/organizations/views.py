@@ -393,7 +393,7 @@ class UserAttemptView(APIView):
                 level_activity.complete = True
                 level_activity.save()
         if score is not None and module_name.lower() != "forklift":
-            if module.passing_score and float(score) <= float(module.passing_score):
+            if module.passing_score and float(score) < float(module.passing_score):
                 level_activity.complete = False
             else:
                 level_activity.complete = True
