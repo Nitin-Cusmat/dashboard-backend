@@ -886,6 +886,8 @@ class AttemptWiseReportSerializer(serializers.ModelSerializer):
     module_names = serializers.ListField()
     user_id = serializers.CharField()
     organization_id = serializers.IntegerField(required=True)
+    start_date = serializers.CharField()
+    end_date = serializers.CharField()
 
     class Meta:
         model = ModuleActivity
@@ -896,6 +898,8 @@ class AttemptWiseReportSerializer(serializers.ModelSerializer):
             "module_names",
             "user_id",
             "organization_id",
+            "start_date",
+            "end_date",
         ]
 
 
