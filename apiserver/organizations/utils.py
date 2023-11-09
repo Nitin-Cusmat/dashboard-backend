@@ -8,6 +8,7 @@ from django.db.models import Sum
 from django.db.models.functions import Extract
 import math
 from collections import defaultdict
+import math
 
 
 class PerformanceCalculations:
@@ -391,6 +392,7 @@ class PerformanceCalculations:
             module_activity_query
         ).aggregate(
             total_users=Count("user"),
+            total_modules=Count("module", distinct=True),
             completed_users=Sum(
                 Case(
                     When(
@@ -404,6 +406,14 @@ class PerformanceCalculations:
                 )
             ),
         )
+
+        if completion_rate["total_modules"] > 1:
+            completion_rate["completed_users"] = math.floor(
+                completion_rate["completed_users"] / completion_rate["total_modules"]
+            )
+            completion_rate["total_users"] = math.floor(
+                completion_rate["total_users"] / completion_rate["total_modules"]
+            )
 
         return completion_rate
 
