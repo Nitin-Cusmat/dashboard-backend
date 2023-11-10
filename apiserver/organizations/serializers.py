@@ -888,6 +888,8 @@ class AttemptWiseReportSerializer(serializers.ModelSerializer):
     module_names = serializers.ListField()
     user_id = serializers.CharField()
     organization_id = serializers.IntegerField(required=True)
+    start_date = serializers.CharField()
+    end_date = serializers.CharField()
 
     class Meta:
         model = ModuleActivity
@@ -898,6 +900,8 @@ class AttemptWiseReportSerializer(serializers.ModelSerializer):
             "module_names",
             "user_id",
             "organization_id",
+            "start_date",
+            "end_date",
         ]
 
 
@@ -957,6 +961,7 @@ class AssignedUsersSerializer(serializers.ModelSerializer):
         return obj["level_date"]
 
     def get_progress(self, obj):
+        progress = 0
         if (
             obj["total_assessment_count"] is not None
             and obj["completed_assessment_count"] is not None
@@ -965,18 +970,18 @@ class AssignedUsersSerializer(serializers.ModelSerializer):
                 obj["completed_assessment_count"] / obj["total_assessment_count"] * 100,
                 2,
             )
-        elif (
-            obj["total_non_assessment_count"] is not None
-            and obj["completed_non_assessment_count"] is not None
-        ):
-            progress = round(
-                obj["completed_non_assessment_count"]
-                / obj["total_non_assessment_count"]
-                * 100,
-                2,
-            )
-        else:
-            progress = 0
+        # elif (
+        #     obj["total_non_assessment_count"] is not None
+        #     and obj["completed_non_assessment_count"] is not None
+        # ):
+        #     progress = round(
+        #         obj["completed_non_assessment_count"]
+        #         / obj["total_non_assessment_count"]
+        #         * 100,
+        #         2,
+        #     )
+        # else:
+        #     progress = 0
 
         if isinstance(progress, float) and progress.is_integer():
             progress = int(progress)

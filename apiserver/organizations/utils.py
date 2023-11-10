@@ -119,10 +119,10 @@ class PerformanceCalculations:
             data["module_completion_rate"] = current_month_completion_rate[
                 "completed_users"
             ]
-            data["module_completion_rate_comparison"] = current_month_completion_rate[
-                "completed_users"
-            ]
-            -previous_month_completion_rate["completed_users"],
+            data["module_completion_rate_comparison"] = (
+                current_month_completion_rate["completed_users"]
+                - previous_month_completion_rate["completed_users"],
+            )
             data["module_completion_rate_chart"] = module_completion_rate_chart
             data[
                 "quarter_trends"

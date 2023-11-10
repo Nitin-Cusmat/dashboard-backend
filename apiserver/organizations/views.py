@@ -393,7 +393,7 @@ class UserAttemptView(APIView):
                 level_activity.complete = True
                 level_activity.save()
         if score is not None and module_name.lower() != "forklift":
-            if module.passing_score and float(score) <= float(module.passing_score):
+            if module.passing_score and float(score) < float(module.passing_score):
                 level_activity.complete = False
             else:
                 level_activity.complete = True
@@ -732,7 +732,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         total_non_assessment_count_subquery = (
             Level.objects.filter(
-                ~Q(category__name__iexact="assessment"),
+                Q(category__name__iexact="training"),
                 module=OuterRef("module__module"),
             )
             .values("module")
@@ -742,7 +742,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         completed_non_assessment_count_subquery = (
             LevelActivity.objects.filter(
-                ~Q(level__category__name__iexact="assessment"),
+                Q(level__category__name__iexact="training"),
                 module_activity=OuterRef("id"),  # Link to ModuleActivity
                 complete=True,
             )
@@ -753,7 +753,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         total_assessment_count_subquery = (
             Level.objects.filter(
-                category__name__iexact="assessment",
+                ~Q(category__name__iexact="training"),
                 module=OuterRef("module__module"),
             )
             .values("module")
@@ -763,7 +763,7 @@ class AssignedUsersApiView(generics.GenericAPIView):
 
         completed_assessment_count_subquery = (
             LevelActivity.objects.filter(
-                level__category__name__iexact="assessment",
+                ~Q(level__category__name__iexact="training"),
                 module_activity=OuterRef("id"),  # Link to ModuleActivity
                 complete=True,
             )
@@ -1145,38 +1145,9 @@ class AttemptWiseReportAPIView(APIView):
     permission_classes = [IsOrgOwnerOrStaff]
     serializer_class = AttemptWiseReportSerializer
 
-    def get_required_records(filter_type, start_date_str=None, end_date_str=None):
-        if filter_type == "last_7_days":
-            end_date = date.today()
-            start_date = end_date - timedelta(days=7)
-
-        elif filter_type == "last_30_days":
-            end_date = date.today()
-            start_date = end_date - timedelta(days=30)
-
-        elif filter_type == "this_month":
-            start_date = date.today().replace(day=1)
-            end_date = date.today().replace(
-                day=1, month=start_date.month + 1
-            ) - timedelta(days=1)
-
-        elif filter_type == "last_month":
-            today = date.today()
-            start_date = today.replace(day=1) - timedelta(days=1)
-            end_date = start_date.replace(day=1)
-
-        elif filter_type == "last_6_months":
-            end_date = date.today()
-            start_date = end_date.replace(day=1) - relativedelta(months=5)
-
-        elif filter_type == "this_year":
-            start_date = date.today().replace(month=1, day=1)
-            end_date = date.today()
-
-        elif filter_type == "custom_range":
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-
+    def get_required_records(filter_type, start_date_str, end_date_str):
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
         return start_date, end_date
 
     def post(self, request):
@@ -1186,15 +1157,8 @@ class AttemptWiseReportAPIView(APIView):
         module_names = serializer.validated_data["module_names"]
         user_id = serializer.validated_data["user_id"]
         organization_id = serializer.validated_data["organization_id"]
-        start_date_str = None
-        end_date_str = None
-        if filter_type == "custom_range":
-            start_date_str = serializer.validated_data.get("start_date", None)
-            end_date_str = serializer.validated_data.get("end_date", None)
-            if start_date_str is None or end_date_str is None:
-                return Response(
-                    status=400, data={"error": "Please provide start_date and end_date"}
-                )
+        start_date_str = serializer.validated_data["start_date"]
+        end_date_str = serializer.validated_data["end_date"]
         assigned_modules = ModuleActivity.objects.filter(
             user__user_id=user_id,
             module__module__name__in=module_names,
