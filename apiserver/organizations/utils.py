@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import calendar
 from django.db.models import Count, F, Case, When, Value, IntegerField, Sum, Q
-from django.db.models.functions import TruncMonth
+from django.db.models.functions import TruncMonth, Coalesce
 from organizations.models import *
 from dateutil.relativedelta import relativedelta
 from django.db.models import Sum
@@ -84,14 +84,18 @@ class PerformanceCalculations:
             )
         )
 
-        module_completion_rate_chart = round(
-            (
-                current_month_completion_rate["completed_users"]
-                / current_month_completion_rate["total_users"]
+        try:
+            module_completion_rate_chart = round(
+                (
+                    current_month_completion_rate["completed_users"]
+                    / current_month_completion_rate["total_users"]
+                )
+                * 100,
+                2,
             )
-            * 100,
-            2,
-        )
+        except:
+            module_completion_rate_chart = 0
+
         if int(module_completion_rate_chart) == module_completion_rate_chart:
             module_completion_rate_chart = int(module_completion_rate_chart)
 
@@ -121,7 +125,7 @@ class PerformanceCalculations:
             ]
             data["module_completion_rate_comparison"] = (
                 current_month_completion_rate["completed_users"]
-                - previous_month_completion_rate["completed_users"],
+                - previous_month_completion_rate["completed_users"]
             )
             data["module_completion_rate_chart"] = module_completion_rate_chart
             data[
@@ -391,17 +395,20 @@ class PerformanceCalculations:
             module_activity_query
         ).aggregate(
             total_users=Count("user"),
-            completed_users=Sum(
-                Case(
-                    When(
-                        complete=True,
-                        complete_date__month__lte=current_month,
-                        complete_date__year=current_year,
-                        then=1,
-                    ),
-                    default=0,
-                    output_field=IntegerField(),
-                )
+            completed_users=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            complete=True,
+                            complete_date__month__lte=current_month,
+                            complete_date__year=current_year,
+                            then=1,
+                        ),
+                        default=0,
+                        output_field=IntegerField(),
+                    )
+                ),
+                0,
             ),
         )
 
