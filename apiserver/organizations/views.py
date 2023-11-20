@@ -1145,7 +1145,7 @@ class AttemptWiseReportAPIView(APIView):
     permission_classes = [IsOrgOwnerOrStaff]
     serializer_class = AttemptWiseReportSerializer
 
-    def get_required_records(filter_type, start_date_str, end_date_str):
+    def get_required_records(start_date_str, end_date_str):
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
         return start_date, end_date
@@ -1153,7 +1153,6 @@ class AttemptWiseReportAPIView(APIView):
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
-        filter_type = serializer.validated_data["filter_type"]
         module_names = serializer.validated_data["module_names"]
         user_id = serializer.validated_data["user_id"]
         organization_id = serializer.validated_data["organization_id"]
@@ -1167,7 +1166,7 @@ class AttemptWiseReportAPIView(APIView):
             user__deleted=False,
         )
         start_date, end_date = AttemptWiseReportAPIView.get_required_records(
-            filter_type, start_date_str, end_date_str
+            start_date_str, end_date_str
         )
 
         total_attempts = 0
@@ -1247,6 +1246,68 @@ class AttemptWiseReportAPIView(APIView):
         }
 
         return Response(status=200, data=data)
+
+
+class PerformanceCharts(APIView):
+    permission_classes = [IsOrgOwnerOrStaff]
+    serializer_class = AttemptWiseReportSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        module_names = serializer.validated_data["module_names"]
+        user_id = serializer.validated_data["user_id"]
+        organization_id = serializer.validated_data["organization_id"]
+        start_date_str = serializer.validated_data["start_date"]
+        end_date_str = serializer.validated_data["end_date"]
+
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+        attempts_data = (
+            Attempt.objects.filter(
+                level_activity__module_activity__user__user_id=user_id,
+                level_activity__module_activity__module__module__name__in=module_names,
+                level_activity__module_activity__user__organization__id=organization_id,
+                level_activity__module_activity__active=True,
+                level_activity__module_activity__user__active=True,
+                level_activity__module_activity__user__deleted=False,
+                end_time__range=(start_date, end_date),
+            )
+            .select_related("level_activity__module_activity__user")
+            .prefetch_related("level_activity__module_activity__module")
+            .annotate(month=TruncMonth("end_time"))
+            .values(
+                "month",
+                "level_activity__module_activity__module__module__name",
+                "level_activity__module_activity__user__user_id",
+            )
+            .annotate(
+                attempts_count=models.Count("id"), total_time_spent=Sum("duration")
+            )
+        )
+
+        chart_data = defaultdict(list)
+
+        for attempt in attempts_data:
+            module_name = attempt[
+                "level_activity__module_activity__module__module__name"
+            ]
+            month = attempt["month"]
+            attempts_count = attempt["attempts_count"]
+            total_time_spent = attempt["total_time_spent"]
+            total_time_spent_str = total_time_spent.total_seconds()
+            chart_data[module_name].append(
+                {
+                    "month_name": month.strftime("%b %Y"),
+                    "attempts_count": attempts_count,
+                    "duration": total_time_spent_str,
+                }
+            )
+
+        chart_data_dict = dict(chart_data)
+
+        return Response(status=200, data=chart_data_dict)
 
 
 class ApplicationUsageAnalyticsAPIView(APIView):

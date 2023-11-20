@@ -882,7 +882,6 @@ class AttemptReportSerializer(BaseAttemptSerializer):
 
 
 class AttemptWiseReportSerializer(serializers.ModelSerializer):
-    filter_type = serializers.CharField()
     start_date = serializers.CharField(required=False)
     end_date = serializers.CharField(required=False)
     module_names = serializers.ListField()
@@ -894,7 +893,6 @@ class AttemptWiseReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = ModuleActivity
         fields = [
-            "filter_type",
             "start_date",
             "end_date",
             "module_names",

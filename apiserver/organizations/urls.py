@@ -26,6 +26,7 @@ from .views import (
     TotalActiveModuleAndUsersAPIView,
     AdminOrganizationApplicationUsageAPIView,
     LevelUserInfo,
+    PerformanceCharts,
 )
 
 urlpatterns = [
@@ -52,6 +53,7 @@ urlpatterns = [
     path("list-levels/", ListLevelsAPIView.as_view()),
     path("attempt-wise-report/", AttemptWiseReportAPIView.as_view()),
     path("attempt-wise-report-table/", AttemptWiseReportTableAPIView.as_view()),
+    path("performance-charts/", PerformanceCharts.as_view()),
     path(
         "application-usage-analytics/<int:usecase>/",
         ApplicationUsageAnalyticsAPIView.as_view(),
