@@ -74,6 +74,7 @@ from django.db.models import (
     BooleanField,
     Subquery,
     OuterRef,
+    Avg,
 )
 from django.shortcuts import get_object_or_404
 
@@ -1249,7 +1250,7 @@ class AttemptWiseReportAPIView(APIView):
 
 
 class PerformanceCharts(APIView):
-    permission_classes = [IsOrgOwnerOrStaff]
+    # permission_classes = [IsOrgOwnerOrStaff]
     serializer_class = AttemptWiseReportSerializer
 
     def post(self, request):
@@ -1263,16 +1264,32 @@ class PerformanceCharts(APIView):
 
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        try:
+            module_attributes = (
+                ModuleAttributes.objects.filter(organization__id=organization_id)
+                .values("module__name")
+                .annotate(
+                    avg_passing_score=Avg("passing_score", default=0),
+                    avg_ideal_mistake=Avg("ideal_mistake", default=0),
+                )
+            )
+        except ModuleAttributes.DoesNotExist:
+            return Response(status=404, data={"error": "Invalid Organization"})
+
+        attempt_filter = {
+            "level_activity__module_activity__user__user_id": user_id,
+            "level_activity__module_activity__user__organization__id": organization_id,
+            "level_activity__module_activity__active": True,
+            "level_activity__module_activity__user__active": True,
+            "level_activity__module_activity__user__deleted": False,
+        }
 
         attempts_data = (
             Attempt.objects.filter(
-                level_activity__module_activity__user__user_id=user_id,
+                **attempt_filter,
                 level_activity__module_activity__module__module__name__in=module_names,
-                level_activity__module_activity__user__organization__id=organization_id,
-                level_activity__module_activity__active=True,
-                level_activity__module_activity__user__active=True,
-                level_activity__module_activity__user__deleted=False,
-                end_time__range=(start_date, end_date),
+                end_time__date__gte=start_date,
+                end_time__date__lte=end_date,
             )
             .select_related("level_activity__module_activity__user")
             .prefetch_related("level_activity__module_activity__module")
@@ -1280,7 +1297,6 @@ class PerformanceCharts(APIView):
             .values(
                 "month",
                 "level_activity__module_activity__module__module__name",
-                "level_activity__module_activity__user__user_id",
             )
             .annotate(
                 attempts_count=models.Count("id"), total_time_spent=Sum("duration")
@@ -1305,9 +1321,79 @@ class PerformanceCharts(APIView):
                 }
             )
 
-        chart_data_dict = dict(chart_data)
+        for module_index, module_name in enumerate(chart_data):
+            for idx, month in enumerate(chart_data[module_name]):
+                month_str = month["month_name"]
+                first_day_of_month = datetime.strptime(month_str, "%b %Y")
+                last_day_of_month = first_day_of_month.replace(
+                    day=calendar.monthrange(
+                        first_day_of_month.year, first_day_of_month.month
+                    )[1]
+                )
 
-        return Response(status=200, data=chart_data_dict)
+                attempts = Attempt.objects.filter(
+                    **attempt_filter,
+                    level_activity__module_activity__module__module__name=module_name,
+                    end_time__date__gte=first_day_of_month.date(),
+                    end_time__date__lte=last_day_of_month.date(),
+                ).only("data")
+
+                total_attempts = len(attempts)
+                total_score = 0
+                mistake_count = 0
+                mistake_content = []
+                success_rate = 0
+                for attempt in attempts:
+                    if isinstance(attempt.data, str):
+                        attempt_data = json.loads(attempt.data)
+                    else:
+                        attempt_data = attempt.data
+                    attempt_score = attempt_data.get("score", None)
+                    if attempt_score is not None:
+                        total_score += attempt_score
+
+                    if "gameData" in attempt_data:
+                        if "mistakes" in attempt_data["gameData"]:
+                            for mistake in attempt_data["gameData"]["mistakes"]:
+                                name = mistake["name"]
+                                if name not in mistake_content:
+                                    mistake_content.append(name)
+                            mistake_count += len(attempt_data["gameData"]["mistakes"])
+
+                    if total_attempts > 0:
+                        success_rate = round(
+                            total_score / (total_attempts * 100) * 100, 2
+                        )
+                    if (
+                        not isinstance(success_rate, int)
+                        and float(success_rate).is_integer()
+                    ):
+                        success_rate = int(success_rate)
+
+                    chart_data[module_name][idx]["success_score"] = success_rate
+                    chart_data[module_name][idx]["mistake_score"] = mistake_count
+                    chart_data[module_name][idx]["mistake_content"] = mistake_content
+                    chart_data[module_name][idx]["ideal_score"] = (
+                        int(module_attributes[module_index]["avg_passing_score"])
+                        if not isinstance(
+                            module_attributes[module_index]["avg_passing_score"], int
+                        )
+                        and float(
+                            module_attributes[module_index]["avg_passing_score"]
+                        ).is_integer()
+                        else module_attributes[module_index]["avg_passing_score"]
+                    )
+                    chart_data[module_name][idx]["ideal_mistake"] = (
+                        int(module_attributes[module_index]["avg_ideal_mistake"])
+                        if not isinstance(
+                            module_attributes[module_index]["avg_ideal_mistake"], int
+                        )
+                        and float(
+                            module_attributes[module_index]["avg_ideal_mistake"]
+                        ).is_integer()
+                        else module_attributes[module_index]["avg_ideal_mistake"]
+                    )
+        return Response(status=200, data=chart_data)
 
 
 class ApplicationUsageAnalyticsAPIView(APIView):

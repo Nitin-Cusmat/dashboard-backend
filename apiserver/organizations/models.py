@@ -60,6 +60,9 @@ class ModuleAttributes(models.Model):
     passing_score = models.DecimalField(
         decimal_places=2, max_digits=5, null=True, blank=True
     )
+    ideal_mistake = models.DecimalField(
+        decimal_places=2, max_digits=5, null=True, blank=True
+    )
     expiry_date = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
