@@ -671,6 +671,8 @@ class AttemptSerializer(serializers.ModelSerializer):
                 inspections_data[0]["UserFlow"]["user_score"] = user_scores
 
             res["kpis"] = game_data.get("kpis", [])
+            res["loading"] = game_data.get("loading", [])
+            res["unloading"] = game_data.get("unloading", [])
             res["generalkpis"] = game_data.get("generalkpis", {})
             res["tasks"] = game_data.get("tasks", None)
             res["mistakes"] = mistakes_data
@@ -737,7 +739,7 @@ class AttemptSerializer(serializers.ModelSerializer):
                         paths["ideal_time"] = game_data["path"]["idealTime"]
                     res["path"] = paths
 
-            if "graph" in game_data and game_data["graph"]:
+        if "graph" in game_data and game_data["graph"]:
                 all_graphs = []
                 # iterate through graphs to be plotted
                 for graph in game_data["graph"]:
@@ -746,9 +748,10 @@ class AttemptSerializer(serializers.ModelSerializer):
                         "type": graph.get("type", ""),
                     }
                     if (
-                        graph["type"] == "doughnut"
+                       graph["type"] == "doughnut"
                         or graph["type"] == "pie"
                         or graph["type"] == "kpis"
+                        or graph["type"] == "kpitask1"
                     ):
                         if graph.get("data", None) is not None:
                             graph["data"] = graph["data"].replace("'", '"')
