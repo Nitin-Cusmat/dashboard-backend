@@ -439,22 +439,22 @@ class UserAttemptView(APIView):
                 module_activity.complete_date = None
                 module_activity.save()
 
-        else:
-            training_levels = all_levels.filter(~Q(category__name__iexact="assessment"))
-            if training_levels.count() > 0:
-                completed_training_levels = LevelActivity.objects.filter(
-                    ~Q(level__category__name__iexact="assessment"),
-                    module_activity=module_activity,
-                    complete=True,
-                )
-                if training_levels.count() == completed_training_levels.count():
-                    module_activity.complete = True
-                    module_activity.complete_date = datetime.now()
-                    module_activity.save()
-                else:
-                    module_activity.complete = False
-                    module_activity.complete_date = None
-                    module_activity.save()
+        # else:
+        #     training_levels = all_levels.filter(~Q(category__name__iexact="assessment"))
+        #     if training_levels.count() > 0:
+        #         completed_training_levels = LevelActivity.objects.filter(
+        #             ~Q(level__category__name__iexact="assessment"),
+        #             module_activity=module_activity,
+        #             complete=True,
+        #         )
+        #         if training_levels.count() == completed_training_levels.count():
+        #             module_activity.complete = True
+        #             module_activity.complete_date = datetime.now()
+        #             module_activity.save()
+        #         else:
+        #             module_activity.complete = False
+        #             module_activity.complete_date = None
+        #             module_activity.save()
 
         UserActivity.objects.create(
             module=main_module,

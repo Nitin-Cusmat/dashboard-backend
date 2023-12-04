@@ -739,7 +739,7 @@ class AttemptSerializer(serializers.ModelSerializer):
                         paths["ideal_time"] = game_data["path"]["idealTime"]
                     res["path"] = paths
 
-        if "graph" in game_data and game_data["graph"]:
+            if "graph" in game_data and game_data["graph"]:
                 all_graphs = []
                 # iterate through graphs to be plotted
                 for graph in game_data["graph"]:
@@ -748,7 +748,7 @@ class AttemptSerializer(serializers.ModelSerializer):
                         "type": graph.get("type", ""),
                     }
                     if (
-                       graph["type"] == "doughnut"
+                        graph["type"] == "doughnut"
                         or graph["type"] == "pie"
                         or graph["type"] == "kpis"
                         or graph["type"] == "kpitask1"
