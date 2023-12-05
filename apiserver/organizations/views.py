@@ -294,106 +294,131 @@ class UserAttemptView(APIView):
 
         logger.info("mark the level as completed")
         score = data.get("score", None)
-        if score is not None and module_name.lower() in ["reach truck", "forklift"]:
-            score = 0
-            free_score_kpi = {
-                "Choose to turn off the unit before get out of the MHE": 2
-            }
+        if score is None:
             if (
-                "gameData" in data
-                and "inspections" in data["gameData"]
-                and data["gameData"]["inspections"]
+                module.mistakes
+                and "gameData" in data
+                and "mistakes" in data["gameData"]
             ):
-                score_kpis = data["gameData"]["inspections"][0].get("actualFlow", [])
-            else:
-                score_kpis = []
-            for score_kpi in score_kpis:
-                if score_kpi in free_score_kpi:
-                    score = score + free_score_kpi[score_kpi]
+                score = sum(module.mistakes.values()) - sum(
+                    module.mistakes.get(mistake["name"], 0)
+                    for mistake in data["gameData"]["mistakes"]
+                )
+            try:
+                score = 100 * score / sum(module.mistakes.values())
+                if score.is_integer():
+                    score = int(score)
+                    data["score"] = round(score, 2)
+            except:
+                score = 0
+        else:
+            if module_name.lower() in ["reach truck", "forklift"]:
+                score = 0
+                free_score_kpi = {
+                    "Choose to turn off the unit before get out of the MHE": 2
+                }
+                if (
+                    "gameData" in data
+                    and "inspections" in data["gameData"]
+                    and data["gameData"]["inspections"]
+                ):
+                    score_kpis = data["gameData"]["inspections"][0].get(
+                        "actualFlow", []
+                    )
+                else:
+                    score_kpis = []
+                for score_kpi in score_kpis:
+                    if score_kpi in free_score_kpi:
+                        score = score + free_score_kpi[score_kpi]
 
-            fixed_table_kpis = {
-                "brake condition": 2,
-                "fork condition": 2,
-                "alert light condition": 1,
-                "camera condition": 1,
-                "tilt condition": 2,
-                "steer condition": 2,
-                "safety belt condition": 1,
-                "fire extiguisher condition": 1,
-                "rearviews mirror condition": 1,
-                "blue light condition": 1,
-                "horn condition": 1,
-                "main light condition": 2,
-            }
+                fixed_table_kpis = {
+                    "brake condition": 2,
+                    "fork condition": 2,
+                    "alert light condition": 1,
+                    "camera condition": 1,
+                    "tilt condition": 2,
+                    "steer condition": 2,
+                    "safety belt condition": 1,
+                    "fire extiguisher condition": 1,
+                    "rearviews mirror condition": 1,
+                    "blue light condition": 1,
+                    "horn condition": 1,
+                    "main light condition": 2,
+                }
 
-            if not data["gameData"]["tableKpis"]:
-                score = score + sum(fixed_table_kpis.values())
-            else:
-                for table_kpi in data["gameData"]["tableKpis"]:
-                    if (
-                        "preCheckCondition" in table_kpi
-                        and table_kpi["preCheckCondition"].strip().lower()
-                        in fixed_table_kpis
-                        and table_kpi["hasChecked"] == True
-                    ):
-                        score = (
-                            score
-                            + fixed_table_kpis[
-                                table_kpi["preCheckCondition"].strip().lower()
-                            ]
-                        )
+                if not data["gameData"]["tableKpis"]:
+                    score = score + sum(fixed_table_kpis.values())
+                else:
+                    for table_kpi in data["gameData"]["tableKpis"]:
+                        if (
+                            "preCheckCondition" in table_kpi
+                            and table_kpi["preCheckCondition"].strip().lower()
+                            in fixed_table_kpis
+                            and table_kpi["hasChecked"] == True
+                        ):
+                            score = (
+                                score
+                                + fixed_table_kpis[
+                                    table_kpi["preCheckCondition"].strip().lower()
+                                ]
+                            )
 
-            fixed_mistakes = {
-                "did not complete pre operation check": 2,
-                "drove over the speed limit": 3,
-                "engagement error": 2,
-                "did not lower forks after stacking": 2,
-                "did not horn while pedestrian in vicinity": 2,
-                "did not horn before starting the engine": 1,
-                "did not horn before moving forward": 1,
-                "did not horn before moving in reverse": 1,
-                "did not press horn when turning into aisles": 1,
-                "fork blending occured": 3,
-                "did not maintain forkheight above 15 cm": 1,
-                "stacking error": 3,
-                "did not fix the pallet postion": 2,
-                "did not report breakdown during pre ops check": 2,
-            }
-            if "mistakes" in data["gameData"]:
-                score = score + sum(fixed_mistakes.values())
-                for mistake in data["gameData"]["mistakes"]:
-                    if mistake["name"].strip().lower() in fixed_mistakes:
-                        score = score - fixed_mistakes[mistake["name"].strip().lower()]
+                fixed_mistakes = {
+                    "did not complete pre operation check": 2,
+                    "drove over the speed limit": 3,
+                    "engagement error": 2,
+                    "did not lower forks after stacking": 2,
+                    "did not horn while pedestrian in vicinity": 2,
+                    "did not horn before starting the engine": 1,
+                    "did not horn before moving forward": 1,
+                    "did not horn before moving in reverse": 1,
+                    "did not press horn when turning into aisles": 1,
+                    "fork blending occured": 3,
+                    "did not maintain forkheight above 15 cm": 1,
+                    "stacking error": 3,
+                    "did not fix the pallet postion": 2,
+                    "did not report breakdown during pre ops check": 2,
+                }
+                if "mistakes" in data["gameData"]:
+                    score = score + sum(fixed_mistakes.values())
+                    for mistake in data["gameData"]["mistakes"]:
+                        if mistake["name"].strip().lower() in fixed_mistakes:
+                            score = (
+                                score - fixed_mistakes[mistake["name"].strip().lower()]
+                            )
 
-            if "path" in data["gameData"]:
-                ideal_total_time = 0
-                for ideal_time in data["gameData"]["path"]["idealTime"]:
-                    ideal_total_time = ideal_total_time + ideal_time["timeTaken"]
+                if "path" in data["gameData"]:
+                    ideal_total_time = 0
+                    for ideal_time in data["gameData"]["path"]["idealTime"]:
+                        ideal_total_time = ideal_total_time + ideal_time["timeTaken"]
 
-                actual_total_time = 0
-                actual_paths = {}
-                for actual_path in data["gameData"]["path"]["vehicleData"]:
-                    if actual_path["path"].lower() != "path-1":
-                        if actual_path["path"].lower() not in actual_paths:
-                            actual_paths[actual_path["path"].lower()] = []
-                        actual_paths[actual_path["path"].lower()].append(actual_path)
+                    actual_total_time = 0
+                    actual_paths = {}
+                    for actual_path in data["gameData"]["path"]["vehicleData"]:
+                        if actual_path["path"].lower() != "path-1":
+                            if actual_path["path"].lower() not in actual_paths:
+                                actual_paths[actual_path["path"].lower()] = []
+                            actual_paths[actual_path["path"].lower()].append(
+                                actual_path
+                            )
 
-                for path in actual_paths:
-                    first = actual_paths[path][0]["time"]
-                    last = actual_paths[path][len(actual_paths[path]) - 1]["time"]
-                    actual_total_time = actual_total_time + (last - first)
+                    for path in actual_paths:
+                        first = actual_paths[path][0]["time"]
+                        last = actual_paths[path][len(actual_paths[path]) - 1]["time"]
+                        actual_total_time = actual_total_time + (last - first)
 
-                diff = actual_total_time - ideal_total_time
-                ideal_10 = ideal_total_time * 10 / 100
-                if diff > 0 and diff > ideal_10:
-                    score = score + 5
+                    diff = actual_total_time - ideal_total_time
+                    ideal_10 = ideal_total_time * 10 / 100
+                    if diff > 0 and diff > ideal_10:
+                        score = score + 5
 
-            score = score / 50 * 100
-            data["score"] = round(score, 2)
-            if module_name.lower() == "forklift":
-                level_activity.complete = True
-                level_activity.save()
-        if score is not None and module_name.lower() != "forklift":
+                score = score / 50 * 100
+                data["score"] = round(score, 2)
+                if module_name.lower() == "forklift":
+                    level_activity.complete = True
+                    level_activity.save()
+
+        if module_name.lower() != "forklift":
             if module.passing_score and float(score) < float(module.passing_score):
                 level_activity.complete = False
             else:
