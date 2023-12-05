@@ -1145,7 +1145,7 @@ class AttemptWiseReportAPIView(APIView):
     permission_classes = [IsOrgOwnerOrStaff]
     serializer_class = AttemptWiseReportSerializer
 
-    def get_required_records(filter_type, start_date_str, end_date_str):
+    def get_required_records(start_date_str, end_date_str):
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
         return start_date, end_date
@@ -1153,7 +1153,6 @@ class AttemptWiseReportAPIView(APIView):
     def post(self, request):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
-        filter_type = serializer.validated_data["filter_type"]
         module_names = serializer.validated_data["module_names"]
         user_id = serializer.validated_data["user_id"]
         organization_id = serializer.validated_data["organization_id"]
@@ -1167,7 +1166,7 @@ class AttemptWiseReportAPIView(APIView):
             user__deleted=False,
         )
         start_date, end_date = AttemptWiseReportAPIView.get_required_records(
-            filter_type, start_date_str, end_date_str
+            start_date_str, end_date_str
         )
 
         total_attempts = 0
