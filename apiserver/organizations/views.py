@@ -1330,6 +1330,10 @@ class PerformanceCharts(APIView):
 
         chart_data = defaultdict(list)
 
+        if not attempts_data:
+            for module_name in module_names:
+                chart_data[module_name] = {}
+
         for attempt in attempts_data:
             module_name = attempt[
                 "level_activity__module_activity__module__module__name"
@@ -1348,6 +1352,7 @@ class PerformanceCharts(APIView):
 
         for module_index, module_name in enumerate(chart_data):
             for idx, month in enumerate(chart_data[module_name]):
+                result = {"excellent": 0, "average": 0, "good": 0}
                 month_str = month["month_name"]
                 first_day_of_month = datetime.strptime(month_str, "%b %Y")
                 last_day_of_month = first_day_of_month.replace(
@@ -1375,6 +1380,12 @@ class PerformanceCharts(APIView):
                         attempt_data = attempt.data
                     attempt_score = attempt_data.get("score", None)
                     if attempt_score is not None:
+                        if attempt_score > 80:
+                            result["excellent"] += 1
+                        elif attempt_score > 80:
+                            result["good"] += 1
+                        else:
+                            result["average"] += 1
                         total_score += attempt_score
 
                     if "gameData" in attempt_data:
@@ -1401,7 +1412,8 @@ class PerformanceCharts(APIView):
                     chart_data[module_name][idx]["ideal_score"] = (
                         int(module_attributes[module_index]["avg_passing_score"])
                         if not isinstance(
-                            module_attributes[module_index]["avg_passing_score"], int
+                            module_attributes[module_index]["avg_passing_score"],
+                            int,
                         )
                         and float(
                             module_attributes[module_index]["avg_passing_score"]
@@ -1411,13 +1423,15 @@ class PerformanceCharts(APIView):
                     chart_data[module_name][idx]["ideal_mistake"] = (
                         int(module_attributes[module_index]["avg_ideal_mistake"])
                         if not isinstance(
-                            module_attributes[module_index]["avg_ideal_mistake"], int
+                            module_attributes[module_index]["avg_ideal_mistake"],
+                            int,
                         )
                         and float(
                             module_attributes[module_index]["avg_ideal_mistake"]
                         ).is_integer()
                         else module_attributes[module_index]["avg_ideal_mistake"]
                     )
+                    chart_data[module_name][idx]["result"] = result
         return Response(status=200, data=chart_data)
 
 
