@@ -1253,11 +1253,9 @@ class AttemptWiseReportAPIView(APIView):
             )
             if performance_trend.is_integer():
                 performance_trend = int(performance_trend)
-            success_rate = (
-                sum(1 for module in assigned_modules if module.complete)
-                / len(assigned_modules)
-                * 100
-            )
+            success_rate = round(all_completed_levels / total_attempts * 100, 2)
+            if success_rate.is_integer():
+                success_rate = int(success_rate)
         data = {
             "success_rate": success_rate,
             "completed_levels": all_completed_levels,
@@ -1275,7 +1273,7 @@ class AttemptWiseReportAPIView(APIView):
 
 
 class PerformanceCharts(APIView):
-    # permission_classes = [IsOrgOwnerOrStaff]
+    permission_classes = [IsOrgOwnerOrStaff]
     serializer_class = AttemptWiseReportSerializer
 
     def post(self, request):
