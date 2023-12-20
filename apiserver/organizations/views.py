@@ -293,24 +293,51 @@ class UserAttemptView(APIView):
         logger.info("level activity fetched")
 
         logger.info("mark the level as completed")
-        score = data.get("score", None)
-        if score is None:
-            if (
-                module.mistakes
-                and "gameData" in data
-                and "mistakes" in data["gameData"]
-            ):
-                score = sum(module.mistakes.values()) - sum(
-                    module.mistakes.get(mistake["name"], 0)
-                    for mistake in data["gameData"]["mistakes"]
-                )
-            try:
-                score = 100 * score / sum(module.mistakes.values())
+        score = data.get("score")
+        if (
+            score is None
+            and module.mistakes
+            and "gameData" in data
+            and "mistakes" in data["gameData"]
+        ):
+            mistake_score = 0
+            tracking_mistake_score = 0
+            category_sums = {}
+            mistake_scores = {}
+
+            for game_mistake in data["gameData"]["mistakes"]:
+                for category, mistakes in module.mistakes[0].items():
+                    if category not in category_sums:
+                        category_sums[category] = 0
+                        mistake_scores[category] = 0
+
+                    for error, severity in mistakes.items():
+                        category_sums[category] += severity
+                        mistake_scores[category] += severity
+
+                        if error == game_mistake["name"]:
+                            mistake_score += severity
+                            mistake_scores[category] -= severity
+
+                        tracking_mistake_score += severity
+
+            if tracking_mistake_score != 0:
+                score = round(100 - (mistake_score / tracking_mistake_score * 100), 2)
                 if score.is_integer():
                     score = int(score)
-                    data["score"] = round(score, 2)
-            except:
-                score = 0
+                data["score"] = score
+
+                result = {
+                    category: round(
+                        mistake_scores[category] / category_sums[category] * 100, 2
+                    )
+                    for category in category_sums
+                }
+                result = {
+                    key: int(value) if value.is_integer() else value
+                    for key, value in result.items()
+                }
+                data["mistakes_score"] = result
         else:
             if module_name.lower() in ["reach truck", "forklift"]:
                 score = 0
@@ -345,8 +372,7 @@ class UserAttemptView(APIView):
                     "horn condition": 1,
                     "main light condition": 2,
                 }
-
-                if not data["gameData"]["tableKpis"]:
+                if "tableKpis" not in data["gameData"]:
                     score = score + sum(fixed_table_kpis.values())
                 else:
                     for table_kpi in data["gameData"]["tableKpis"]:
@@ -419,7 +445,11 @@ class UserAttemptView(APIView):
                     level_activity.save()
 
         if module_name.lower() != "forklift":
-            if module.passing_score and float(score) < float(module.passing_score):
+            if (
+                module.passing_score
+                and score
+                and float(score) < float(module.passing_score)
+            ):
                 level_activity.complete = False
             else:
                 level_activity.complete = True

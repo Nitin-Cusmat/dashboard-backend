@@ -572,6 +572,9 @@ class AttemptSerializer(serializers.ModelSerializer):
                     "passing_score": passing_score,
                     "result": float(score if score else 0) >= float(passing_score),
                 }
+            mistakes_score = json_data.get("mistakes_score", None)
+            if mistakes_score:
+                res["mistakesScore"] = mistakes_score
             inspections_data = game_data.get("inspections", [])
             mistakes_data = game_data.get("mistakes", [])
             module_name = json_data["module"]["name"]
