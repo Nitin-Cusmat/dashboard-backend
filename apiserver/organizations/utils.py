@@ -456,15 +456,26 @@ class ApplicationUsage:
     def get_organization_application_usage(user_activity, organization=None):
         if organization:
             current_year = datetime.now().year
-            monthly = (
-                user_activity.filter(end_time__year=current_year)
-                .annotate(month=Extract("end_time", "month"))
+            current_month = datetime.now().month
+            monthly = list(
+                user_activity.annotate(month=Extract("end_time", "month"))
                 .values("month")
                 .annotate(total_duration=Sum("duration"))
-            ).order_by("month")
+                .order_by("month")
+            )[-12:]
+
+            all_months = [
+                (year, month)
+                for year in range(organization.created_at.year, current_year + 1)
+                for month in range(1, 13)
+                if not (
+                    year == organization.created_at.year
+                    and month < organization.created_at.month
+                )
+                and not (year == current_year and month > current_month)
+            ]
             monthly_dict = {
-                calendar.month_name[i]: 0.0
-                for i in range(organization.created_at.month, datetime.now().month + 1)
+                calendar.month_name[month]: 0.0 for year, month in all_months
             }
             for month in monthly:
                 month_name_str = calendar.month_name[month["month"]]
