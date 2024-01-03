@@ -140,6 +140,7 @@ class PerformanceCalculations:
                 - previous_month_completion_rate["completed_users"]
             )
             data["completion_rate_chart"] = module_completion_rate_chart
+            data["monthly_counts"] = {}
             organization_creation = organization.created_at
 
             for module in module_attribute:
