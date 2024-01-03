@@ -141,9 +141,9 @@ class PerformanceCalculations:
             )
             data["completion_rate_chart"] = module_completion_rate_chart
             data["monthly_counts"] = {}
-            organization_creation = organization.created_at
 
             for module in module_attribute:
+                organization_creation = organization.created_at
                 name = module.module.name
 
                 while organization_creation <= datetime.now(timezone.utc):
