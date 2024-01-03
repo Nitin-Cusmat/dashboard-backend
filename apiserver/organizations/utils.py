@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import calendar
 from django.db.models import Count, F, Case, When, Value, IntegerField, Sum, Q
 from django.db.models.functions import TruncMonth, Coalesce
@@ -140,39 +140,39 @@ class PerformanceCalculations:
                 - previous_month_completion_rate["completed_users"]
             )
             data["completion_rate_chart"] = module_completion_rate_chart
-            completion_rates = (
-                ModuleActivity.objects.filter(
-                    user__active=True,
-                    user__deleted=False,
-                    active=True,
-                    user__organization=organization,
-                )
-                .annotate(month=TruncMonth("assigned_on"))
-                .values("month", "module__module__name")
-                .annotate(
-                    completed_count=Count("id", filter=F("complete")),
-                    assigned_count=Count("id"),
-                )
-                .order_by("month")
-            )
-            result = defaultdict(dict)
-            for item in completion_rates:
-                month_number = item["month"].month
-                month_name = calendar.month_name[month_number]
-                module_name = item["module__module__name"]
-                completed_count = item["completed_count"]
-                assigned_count = item["assigned_count"]
+            data["monthly_counts"] = {}
 
-                completion_rate = (
-                    round(completed_count / assigned_count * 100, 2)
-                    if assigned_count > 0
-                    else 0
-                )
-                if int(completion_rate) == completion_rate:
-                    completion_rate = int(completion_rate)
-                result[module_name][month_name] = completion_rate
-            data["monthly_counts"] = result
+            for module in module_attribute:
+                organization_creation = organization.created_at
+                name = module.module.name
 
+                while organization_creation <= datetime.now(timezone.utc):
+                    assigned_count = ModuleActivity.objects.filter(
+                        module_activity_query,
+                        module__module__name=name,
+                        assigned_on__month__lte=organization_creation.month,
+                    ).count()
+
+                    completed_count = ModuleActivity.objects.filter(
+                        module_activity_query,
+                        module__module__name=name,
+                        complete=True,
+                        complete_date__month__lte=organization_creation.month,
+                    ).count()
+
+                    completion_rate = (
+                        (round(completed_count / assigned_count * 100, 2))
+                        if assigned_count > 0
+                        else 0
+                    )
+                    if float(completion_rate).is_integer():
+                        completion_rate = int(completion_rate)
+                    if name not in data["monthly_counts"]:
+                        data["monthly_counts"][name] = {}
+                    data["monthly_counts"][name][
+                        calendar.month_name[organization_creation.month]
+                    ] = completion_rate
+                    organization_creation += relativedelta(months=1)
         return data
 
     def calculate_performance_trends(module_attribute, current_month, current_year):
