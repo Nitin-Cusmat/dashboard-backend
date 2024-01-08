@@ -703,6 +703,7 @@ class AttemptSerializer(serializers.ModelSerializer):
             res["vAxisLines"] = game_data.get("vAxisLines", None)
             res["kpitable"] = game_data.get("kpitable", None)
             res["pathtable"] = game_data.get("pathtable", None)
+            res["structures"] = game_data.get("structures", None)
             res["path"] = None
 
             if "path" in game_data:

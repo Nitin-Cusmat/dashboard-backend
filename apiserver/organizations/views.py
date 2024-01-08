@@ -1380,6 +1380,7 @@ class PerformanceCharts(APIView):
 
         for module_index, module_name in enumerate(chart_data):
             for idx, month in enumerate(chart_data[module_name]):
+                level_wise_result = {}
                 result = {"excellent": 0, "average": 0, "good": 0}
                 month_str = month["month_name"]
                 first_day_of_month = datetime.strptime(month_str, "%b %Y")
@@ -1389,12 +1390,16 @@ class PerformanceCharts(APIView):
                     )[1]
                 )
 
-                attempts = Attempt.objects.filter(
-                    **attempt_filter,
-                    level_activity__module_activity__module__module__name=module_name,
-                    end_time__date__gte=first_day_of_month.date(),
-                    end_time__date__lte=last_day_of_month.date(),
-                ).only("data")
+                attempts = (
+                    Attempt.objects.filter(
+                        **attempt_filter,
+                        level_activity__module_activity__module__module__name=module_name,
+                        end_time__date__gte=first_day_of_month.date(),
+                        end_time__date__lte=last_day_of_month.date(),
+                    )
+                    .only("data")
+                    .order_by("level_activity__level")
+                )
 
                 total_attempts = len(attempts)
                 total_score = 0
@@ -1402,6 +1407,12 @@ class PerformanceCharts(APIView):
                 mistake_content = []
                 success_rate = 0
                 for attempt in attempts:
+                    if attempt.level_activity.level.name not in level_wise_result:
+                        level_wise_result[attempt.level_activity.level.name] = {
+                            "excellent": 0,
+                            "average": 0,
+                            "good": 0,
+                        }
                     if isinstance(attempt.data, str):
                         attempt_data = json.loads(attempt.data)
                     else:
@@ -1410,10 +1421,19 @@ class PerformanceCharts(APIView):
                     if attempt_score is not None:
                         if attempt_score > 80:
                             result["excellent"] += 1
+                            level_wise_result[attempt.level_activity.level.name][
+                                "excellent"
+                            ] += 1
                         elif attempt_score > 80:
                             result["good"] += 1
+                            level_wise_result[attempt.level_activity.level.name][
+                                "good"
+                            ] += 1
                         else:
                             result["average"] += 1
+                            level_wise_result[attempt.level_activity.level.name][
+                                "average"
+                            ] += 1
                         total_score += attempt_score
 
                     if "gameData" in attempt_data:
@@ -1460,6 +1480,9 @@ class PerformanceCharts(APIView):
                         else module_attributes[module_index]["avg_ideal_mistake"]
                     )
                     chart_data[module_name][idx]["result"] = result
+                    chart_data[module_name][idx][
+                        "level_wise_result"
+                    ] = level_wise_result
         return Response(status=200, data=chart_data)
 
 
