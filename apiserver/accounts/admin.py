@@ -26,7 +26,7 @@ class UserAdmin(admin.ModelAdmin):
         "work_location",
         "deleted",
     ]
-    list_filter = ["organization", "access_type"]
+    list_filter = ["organization", "access_type", "active", "deleted"]
 
     fieldsets = (
         (None, {"fields": ("first_name", "password")}),
