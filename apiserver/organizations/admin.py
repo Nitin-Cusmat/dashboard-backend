@@ -72,6 +72,9 @@ class ModuleActivityAdmin(admin.ModelAdmin):
         ("user__organization__name", custom_titled_filter("organization")),
         "complete",
         "passed",
+        ("user__deleted", custom_titled_filter("user deleted")),
+        ("user__active", custom_titled_filter("user active")),
+        ("active", custom_titled_filter("module activity active")),
     ]
 
     def organization(self, obj):
